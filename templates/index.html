@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Vector Search</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold text-indigo-700 mb-2">Document Vector Search</h1>
+            <p class="text-gray-600">Upload PDFs or Word docs and search their content using semantic search</p>
+        </header>
+
+        <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4 text-gray-800">Upload Document</h2>
+            <div class="flex items-center space-x-4">
+                <input type="file" id="fileInput" accept=".pdf,.docx,.doc" class="flex-1 p-2 border rounded">
+                <button onclick="uploadFile()" class="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition">
+                    Upload
+                </button>
+                <button onclick="clearDatabase()" class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 transition" title="Clear all documents from database">
+                    Clear DB
+                </button>
+            </div>
+            <div id="uploadStatus" class="mt-2 text-sm text-gray-600"></div>
+        </div>
+
+        <div class="max-w-3xl mx-auto bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4 text-gray-800">Search Documents</h2>
+            <div class="flex space-x-4 mb-6 items-center">
+                <input type="text" id="searchInput" placeholder="Enter your search query..." 
+                       class="flex-1 p-2 border rounded focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                <label class="flex items-center space-x-2">
+                  <input type="checkbox" id="showPiiCheckbox" />
+                  <span>Show PII (admin only)</span>
+                </label>
+                <button onclick="searchDocuments()" 
+                        class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700 transition">
+                    Search
+                </button>
+            </div>
+            
+            <div id="searchResults" class="space-y-4">
+                <!-- Results will be displayed here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function clearDatabase() {
+            if (!confirm('Are you sure you want to clear all documents from the database? This action cannot be undone.')) {
+                return;
+            }
+            
+            const uploadStatus = document.getElementById('uploadStatus');
+            uploadStatus.textContent = 'Clearing database...';
+            uploadStatus.className = 'mt-2 text-sm text-yellow-600';
+            
+            try {
+                const response = await fetch('/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    uploadStatus.textContent = result.message || 'Database cleared successfully!';
+                    uploadStatus.className = 'mt-2 text-sm text-green-600';
+                    
+                    // Clear search results
+                    document.getElementById('searchResults').innerHTML = '';
+                } else {
+                    uploadStatus.textContent = 'Error: ' + (result.error || 'Failed to clear database');
+                    uploadStatus.className = 'mt-2 text-sm text-red-600';
+                }
+            } catch (error) {
+                uploadStatus.textContent = 'Error: ' + error.message;
+                uploadStatus.className = 'mt-2 text-sm text-red-600';
+            }
+        }
+        
+        async function uploadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const statusDiv = document.getElementById('uploadStatus');
+            if (!fileInput.files.length) {
+                statusDiv.textContent = 'Please select a file first';
+                statusDiv.className = 'mt-2 text-sm text-red-600';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            statusDiv.textContent = 'Uploading...';
+            statusDiv.className = 'mt-2 text-sm text-blue-600';
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    statusDiv.textContent = 'File uploaded and processed successfully!';
+                    statusDiv.className = 'mt-2 text-sm text-green-600';
+                    fileInput.value = '';
+                } else {
+                    throw new Error(result.error || 'Upload failed');
+                }
+            } catch (error) {
+                statusDiv.textContent = `Error: ${error.message}`;
+                statusDiv.className = 'mt-2 text-sm text-red-600';
+            }
+        }
+        async function searchDocuments() {
+            const query = document.getElementById('searchInput').value.trim();
+            const resultsDiv = document.getElementById('searchResults');
+            const showPii = document.getElementById('showPiiCheckbox').checked;
+            if (!query) {
+                resultsDiv.innerHTML = '<p class="text-red-500">Please enter a search query</p>';
+                return;
+            }
+            resultsDiv.innerHTML = '<p class="text-gray-600">Searching...</p>';
+            try {
+                const response = await fetch('/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        show_pii: showPii
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(data.error || 'Search failed');
+                }
+                if (data.results.length === 0) {
+                    resultsDiv.innerHTML = '<p class="text-gray-600">No results found.</p>';
+                    return;
+                }
+                let html = '';
+                data.results.forEach((result, index) => {
+                    const filename = result.metadata.source || 'Unknown';
+                    html += `
+                        <div class="result-card bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition">
+                            <div class="flex justify-between items-start mb-2">
+                                <h3 class="font-medium text-gray-900">${filename}</h3>
+                                <span class="px-2 py-1 text-xs font-semibold text-white bg-green-500 rounded">
+                                    ${(result.score * 100).toFixed(0)}% Match
+                                </span>
+                            </div>
+                            <p class="text-gray-800"><strong>Answer:</strong> ${result.content}</p>
+                            <hr class="my-3">
+                            <div>
+                                <p class="text-sm font-medium text-gray-600">Retrieved Context:</p>
+                                <pre class="bg-gray-50 p-2 mt-1 rounded text-xs text-gray-700 whitespace-pre-wrap">${result.context}</pre>
+                            </div>
+                        </div>
+                    `;
+                });
+                resultsDiv.innerHTML = html;
+            } catch (error) {
+                resultsDiv.innerHTML = `<p class='text-red-500'>Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
