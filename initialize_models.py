@@ -1,3 +1,4 @@
+print("--- initialize_models.py script execution started ---")
 from doc_vectorizer import DocVectorizer
 
 if __name__ == "__main__":
